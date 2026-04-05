@@ -1,9 +1,5 @@
 @import "tailwindcss";
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@import "highlight.js/styles/github.css";
 
 @theme inline {
   --color-background: var(--background);
@@ -12,15 +8,232 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+html {
+  height: 100%;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  min-height: 100%;
+}
+
+/* Prose styling for markdown preview */
+.prose {
+  --tw-prose-body: #374151;
+  --tw-prose-headings: #111827;
+  --tw-prose-links: #2563eb;
+  --tw-prose-bold: #111827;
+  --tw-prose-counters: #6b7280;
+  --tw-prose-bullets: #9ca3af;
+  --tw-prose-hr: #e5e7eb;
+  --tw-prose-quotes: #4b5563;
+  --tw-prose-quote-borders: #d1d5db;
+  --tw-prose-code: #111827;
+  --tw-prose-pre-code: #e5e7eb;
+  --tw-prose-pre-bg: #1e1e1e;
+  --tw-prose-th-borders: #d1d5db;
+  --tw-prose-td-borders: #e5e7eb;
+  font-size: 1rem;
+  line-height: 1.75;
+  color: var(--tw-prose-body);
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  color: var(--tw-prose-headings);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.prose h1 { font-size: 2em; margin-top: 0; margin-bottom: 0.8em; }
+.prose h2 { font-size: 1.5em; margin-top: 1.6em; margin-bottom: 0.6em; }
+.prose h3 { font-size: 1.25em; margin-top: 1.4em; margin-bottom: 0.5em; }
+.prose h4 { font-size: 1.1em; margin-top: 1.2em; margin-bottom: 0.4em; }
+
+.prose p {
+  margin-top: 0.8em;
+  margin-bottom: 0.8em;
+}
+
+.prose strong {
+  color: var(--tw-prose-bold);
+  font-weight: 600;
+}
+
+.prose a {
+  color: var(--tw-prose-links);
+  text-decoration: none;
+}
+
+.prose a:hover {
+  text-decoration: underline;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.5em;
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose li {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.prose blockquote {
+  font-style: italic;
+  border-left: 4px solid var(--tw-prose-quote-borders);
+  padding-left: 1em;
+  margin: 1em 0;
+  color: var(--tw-prose-quotes);
+}
+
+.prose hr {
+  border-color: var(--tw-prose-hr);
+  margin: 2em 0;
+}
+
+/* Dark mode prose */
+.dark .prose {
+  --tw-prose-body: #d1d5db;
+  --tw-prose-headings: #f3f4f6;
+  --tw-prose-links: #60a5fa;
+  --tw-prose-bold: #f3f4f6;
+  --tw-prose-counters: #9ca3af;
+  --tw-prose-bullets: #6b7280;
+  --tw-prose-hr: #374151;
+  --tw-prose-quotes: #9ca3af;
+  --tw-prose-quote-borders: #4b5563;
+  --tw-prose-code: #f3f4f6;
+  --tw-prose-pre-code: #e5e7eb;
+  --tw-prose-pre-bg: #111827;
+  --tw-prose-th-borders: #4b5563;
+  --tw-prose-td-borders: #374151;
+  color: var(--tw-prose-body);
+}
+
+.dark .prose h1,
+.dark .prose h2,
+.dark .prose h3,
+.dark .prose h4,
+.dark .prose h5,
+.dark .prose h6 {
+  color: var(--tw-prose-headings);
+}
+
+.dark .prose strong {
+  color: var(--tw-prose-bold);
+}
+
+.dark .prose a {
+  color: var(--tw-prose-links);
+}
+
+.dark .prose blockquote {
+  border-left-color: var(--tw-prose-quote-borders);
+  color: var(--tw-prose-quotes);
+}
+
+.dark .prose hr {
+  border-color: var(--tw-prose-hr);
+}
+
+/* CodeMirror overrides */
+.cm-editor {
+  height: 100% !important;
+}
+
+.cm-editor .cm-scroller {
+  font-family: var(--font-mono, 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace);
+}
+
+.cm-editor .cm-gutters {
+  border-right: 1px solid #e5e7eb;
+}
+
+.dark .cm-editor .cm-gutters {
+  border-right: 1px solid #374151;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Print styles for PDF export */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  [data-preview-content],
+  [data-preview-content] * {
+    visibility: visible;
+  }
+
+  [data-preview-content] {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 2rem;
+  }
+}
+
+/* Highlight.js dark mode override */
+.dark .hljs {
+  background: #111827 !important;
+  color: #e5e7eb !important;
+}
+
+.dark pre {
+  background: #111827 !important;
+}
+
+/* Selection styling */
+::selection {
+  background-color: #bfdbfe;
+}
+
+.dark ::selection {
+  background-color: #1e3a5f;
 }
