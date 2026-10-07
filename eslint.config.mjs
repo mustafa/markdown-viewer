@@ -12,7 +12,16 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Electron build output and Claude Code worktrees.
+    "dist/**",
+    ".claude/**",
   ]),
+  {
+    // The Electron main process is plain CommonJS, not TypeScript.
+    files: ["electron/**/*.js"],
+    languageOptions: { sourceType: "commonjs" },
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
 ]);
 
 export default eslintConfig;

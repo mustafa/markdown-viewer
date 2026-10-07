@@ -42,3 +42,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# electron-builder output
+/dist/
+
+# claude code worktrees
+.claude/worktrees/
