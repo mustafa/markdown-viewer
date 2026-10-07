@@ -54,6 +54,9 @@ export default function MainLayout() {
   const [tocOpen, setTocOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
+  const [searchMatchCount, setSearchMatchCount] = useState(0);
+  const [searchActiveMatch, setSearchActiveMatch] = useState(0);
   const [editorView, setEditorView] = useState<EditorView | null>(null);
   const [mounted, setMounted] = useState(false);
   const initRef = useRef(false);
@@ -63,10 +66,13 @@ export default function MainLayout() {
 
   useAutoSave(activeFile);
 
-  // Load from localStorage on mount
+  // Load from localStorage on mount. The page is prerendered without
+  // storage access, so hydrating state lazily would mismatch the exported
+  // HTML; an effect is the right place for this one-time read.
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time localStorage hydration after mount
     setMounted(true);
 
     const stored = loadFiles();
@@ -242,8 +248,29 @@ export default function MainLayout() {
     setEditorView(view);
   }, []);
 
-  const handleSearchQueryChange = useCallback((query: string) => {
-    setSearchQuery(query);
+  const handleSearchQueryChange = useCallback(
+    (query: string, caseSensitive: boolean) => {
+      setSearchQuery(query);
+      setSearchCaseSensitive(caseSensitive);
+      setSearchActiveMatch(query ? 1 : 0);
+    },
+    []
+  );
+
+  // The preview reports how many matches it actually highlighted; keep the
+  // active index inside that range.
+  const handleSearchMatchCount = useCallback((count: number) => {
+    setSearchMatchCount(count);
+    setSearchActiveMatch((prev) =>
+      count === 0 ? 0 : Math.min(Math.max(prev, 1), count)
+    );
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchMatchCount(0);
+    setSearchActiveMatch(0);
   }, []);
 
   // Handle image drag-and-drop into the editor
@@ -368,18 +395,17 @@ export default function MainLayout() {
               {(viewMode === "editor" || viewMode === "split") && (
                 <EditorToolbar
                   editorView={editorView}
-                  onToggleSearch={() => setSearchOpen(!searchOpen)}
+                  onToggleSearch={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
                   searchActive={searchOpen}
                 />
               )}
               {searchOpen && (
                 <SearchBar
-                  content={activeFile.content}
-                  onClose={() => {
-                    setSearchOpen(false);
-                    setSearchQuery("");
-                  }}
+                  matchCount={searchMatchCount}
+                  activeMatch={searchActiveMatch}
+                  onClose={closeSearch}
                   onQueryChange={handleSearchQueryChange}
+                  onActiveMatchChange={setSearchActiveMatch}
                 />
               )}
               <div className="flex flex-1 overflow-hidden">
@@ -419,6 +445,9 @@ export default function MainLayout() {
                       <MarkdownPreview
                         content={activeFile.content}
                         searchQuery={searchQuery}
+                        caseSensitive={searchCaseSensitive}
+                        activeMatch={searchActiveMatch}
+                        onMatchCount={handleSearchMatchCount}
                       />
                     </div>
                     {tocOpen && (
