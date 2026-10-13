@@ -69,10 +69,10 @@ export default function MainLayout() {
   // Load from localStorage on mount. The page is prerendered without
   // storage access, so hydrating state lazily would mismatch the exported
   // HTML; an effect is the right place for this one-time read.
+  /* eslint-disable react-hooks/set-state-in-effect -- one-time localStorage hydration after mount */
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time localStorage hydration after mount
     setMounted(true);
 
     const stored = loadFiles();
@@ -110,6 +110,7 @@ export default function MainLayout() {
       setActiveFileId(defaultFile.id);
     }
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Persist open file IDs and active file ID
   useEffect(() => {
