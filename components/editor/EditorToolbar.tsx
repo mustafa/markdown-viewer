@@ -12,7 +12,7 @@ import {
   ListOrdered,
   ListChecks,
   Link,
-  Image,
+  Image as ImageIcon,
   Code,
   CodeSquare,
   Table,
@@ -112,7 +112,7 @@ export default function EditorToolbar({
       shortcut: "Cmd+K",
     },
     {
-      icon: <Image className="h-4 w-4" />,
+      icon: <ImageIcon className="h-4 w-4" />,
       label: "Image",
       action: insertImage,
     },
