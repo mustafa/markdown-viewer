@@ -1,3 +1,4 @@
+import GithubSlugger from "github-slugger";
 import { Heading } from "@/types";
 
 export function countWords(content: string): number {
@@ -17,23 +18,51 @@ export function estimateReadingTime(content: string): number {
   return Math.max(1, minutes);
 }
 
-export function extractHeadings(content: string): Heading[] {
-  const headings: Heading[] = [];
-  const lines = content.split("\n");
+// The text a heading renders as: inline markup stripped the way the preview
+// renders it, so the slug below matches the id rehype-slug gives the element.
+function inlineText(raw: string): string {
+  return raw
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/<[^>]+>/g, "")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(/(\*|_)(.+?)\1/g, "$2")
+    .replace(/~~(.+?)~~/g, "$1")
+    .replace(/\\([\\`*_{}[\]()#+\-.!~])/g, "$1")
+    .trim();
+}
 
-  for (const line of lines) {
-    const match = line.match(/^(#{1,6})\s+(.+)$/);
-    if (match) {
-      const level = match[1].length;
-      const text = match[2].replace(/[*_`~]/g, "").trim();
-      const id = text
-        .toLowerCase()
-        .replace(/[^\w\s-]/g, "")
-        .replace(/\s+/g, "-")
-        .replace(/-+/g, "-");
-      headings.push({ level, text, id });
+// ATX headings outside fenced code blocks. Ids come from github-slugger, the
+// same slugger rehype-slug uses for the preview, so the table of contents
+// lands on the rendered element even for punctuation and repeated headings
+// ("Setup", "Setup" -> setup, setup-1). `line` is 1-based for the editor.
+export function extractHeadings(content: string): Heading[] {
+  const slugger = new GithubSlugger();
+  const headings: Heading[] = [];
+  let fence: string | null = null;
+
+  content.split("\n").forEach((line, index) => {
+    const fenceMatch = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1];
+      if (!fence) fence = marker;
+      else if (marker[0] === fence[0] && marker.length >= fence.length) fence = null;
+      return;
     }
-  }
+    if (fence) return;
+
+    const match = line.match(/^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/);
+    if (!match) return;
+    const text = inlineText(match[2]);
+    if (!text) return;
+    headings.push({
+      level: match[1].length,
+      text,
+      id: slugger.slug(text),
+      line: index + 1,
+    });
+  });
   return headings;
 }
 

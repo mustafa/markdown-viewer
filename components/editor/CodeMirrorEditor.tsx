@@ -107,6 +107,10 @@ export default function CodeMirrorEditor({
         theme={isDark ? oneDark : "light"}
         basicSetup={{
           lineNumbers: settings.lineNumbers,
+          // Cmd/Ctrl+F is the app's search bar (it also drives the editor
+          // selection in editor-only view); CodeMirror's own panel would
+          // otherwise capture the key while the editor has focus.
+          searchKeymap: false,
           highlightActiveLineGutter: true,
           highlightActiveLine: true,
           foldGutter: true,

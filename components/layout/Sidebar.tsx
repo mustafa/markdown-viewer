@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   FilePlus,
   FolderOpen,
@@ -10,6 +10,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { MarkdownFile } from "@/types";
+import { SAMPLES } from "@/lib/samples";
 import { cn } from "@/lib/utils";
 
 interface SidebarProps {
@@ -19,8 +20,12 @@ interface SidebarProps {
   onNewFile: () => void;
   onOpenFile: (file: File) => void;
   onDeleteFile: (id: string) => void;
+  onRenameFile: (id: string, name: string) => void;
   onLoadSample: (filename: string) => void;
 }
+
+const isMarkdownName = (name: string) =>
+  /\.(md|markdown|mdown|mkd|txt)$/i.test(name);
 
 export default function Sidebar({
   files,
@@ -29,11 +34,25 @@ export default function Sidebar({
   onNewFile,
   onOpenFile,
   onDeleteFile,
+  onRenameFile,
   onLoadSample,
 }: SidebarProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [samplesOpen, setSamplesOpen] = useState(true);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!renamingId) return;
+    const input = renameInputRef.current;
+    if (!input) return;
+    input.focus();
+    // Select the stem so typing replaces the name but keeps the extension.
+    const dot = input.value.lastIndexOf(".");
+    input.setSelectionRange(0, dot > 0 ? dot : input.value.length);
+  }, [renamingId]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -54,10 +73,7 @@ export default function Sidebar({
       setIsDragOver(false);
 
       const droppedFiles = Array.from(e.dataTransfer.files);
-      const mdFiles = droppedFiles.filter(
-        (f) => f.name.endsWith(".md") || f.name.endsWith(".markdown") || f.name.endsWith(".txt")
-      );
-      mdFiles.forEach((f) => onOpenFile(f));
+      droppedFiles.filter((f) => isMarkdownName(f.name)).forEach((f) => onOpenFile(f));
     },
     [onOpenFile]
   );
@@ -75,10 +91,28 @@ export default function Sidebar({
     [onOpenFile]
   );
 
-  const samples = [
-    { name: "Welcome", filename: "welcome.md" },
-    { name: "GFM Demo", filename: "sample-gfm.md" },
-  ];
+  const startRename = useCallback((file: MarkdownFile) => {
+    setRenamingId(file.id);
+    setDraftName(file.name);
+  }, []);
+
+  const commitRename = useCallback(() => {
+    if (!renamingId) return;
+    const name = draftName.trim();
+    if (name) onRenameFile(renamingId, name);
+    setRenamingId(null);
+  }, [renamingId, draftName, onRenameFile]);
+
+  const cancelRename = useCallback(() => setRenamingId(null), []);
+
+  const confirmDelete = useCallback(
+    (file: MarkdownFile) => {
+      if (window.confirm(`Delete "${file.name}"? This cannot be undone.`)) {
+        onDeleteFile(file.id);
+      }
+    },
+    [onDeleteFile]
+  );
 
   return (
     <div
@@ -112,7 +146,7 @@ export default function Sidebar({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".md,.markdown,.txt"
+          accept=".md,.markdown,.mdown,.mkd,.txt"
           multiple
           onChange={handleFileInputChange}
           className="hidden"
@@ -123,38 +157,66 @@ export default function Sidebar({
         {files.length > 0 && (
           <div className="py-2">
             <h3 className="px-3 mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-              Open Files
+              Files
             </h3>
             <ul>
               {files.map((file) => (
-                <li key={file.id}>
-                  <button
-                    onClick={() => onSelectFile(file.id)}
-                    className={cn(
-                      "flex items-center gap-2 w-full px-3 py-1.5 text-sm transition-colors group",
-                      activeFileId === file.id
-                        ? "bg-neutral-200 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
-                        : "text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800/50"
-                    )}
-                  >
-                    <FileText className="h-4 w-4 shrink-0" />
-                    <span className="truncate flex-1 text-left">
-                      {file.name}
-                    </span>
-                    {file.isDirty && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                    )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteFile(file.id);
-                      }}
-                      className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-opacity shrink-0"
-                      title="Delete"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </button>
+                <li key={file.id} className="group relative">
+                  {renamingId === file.id ? (
+                    <div className="flex items-center gap-2 px-3 py-1">
+                      <FileText className="h-4 w-4 shrink-0 text-neutral-500" />
+                      <input
+                        ref={renameInputRef}
+                        value={draftName}
+                        onChange={(e) => setDraftName(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitRename();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            cancelRename();
+                          }
+                        }}
+                        aria-label="File name"
+                        className="flex-1 min-w-0 text-sm px-1 py-0.5 rounded border border-blue-400 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => onSelectFile(file.id)}
+                        onDoubleClick={() => startRename(file)}
+                        title={`${file.name} (double-click to rename)`}
+                        className={cn(
+                          "flex items-center gap-2 w-full pl-3 pr-8 py-1.5 text-sm transition-colors",
+                          activeFileId === file.id
+                            ? "bg-neutral-200 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
+                            : "text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800/50"
+                        )}
+                      >
+                        <FileText className="h-4 w-4 shrink-0" />
+                        <span className="truncate flex-1 text-left">
+                          {file.name}
+                        </span>
+                        {file.isDirty && (
+                          <span
+                            className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"
+                            title="Unsaved changes"
+                          />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => confirmDelete(file)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-opacity text-neutral-500 dark:text-neutral-400"
+                        title="Delete"
+                        aria-label={`Delete ${file.name}`}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
@@ -164,6 +226,7 @@ export default function Sidebar({
         <div className="py-2 border-t border-neutral-200 dark:border-neutral-800">
           <button
             onClick={() => setSamplesOpen(!samplesOpen)}
+            aria-expanded={samplesOpen}
             className="flex items-center gap-1 px-3 mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300 w-full"
           >
             {samplesOpen ? (
@@ -175,7 +238,7 @@ export default function Sidebar({
           </button>
           {samplesOpen && (
             <ul>
-              {samples.map((sample) => (
+              {SAMPLES.map((sample) => (
                 <li key={sample.filename}>
                   <button
                     onClick={() => onLoadSample(sample.filename)}

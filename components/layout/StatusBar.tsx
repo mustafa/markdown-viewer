@@ -20,6 +20,10 @@ interface StatusBarProps {
   onViewModeChange: (mode: ViewMode) => void;
   settings: EditorSettings;
   onSettingsChange: (settings: EditorSettings) => void;
+  /** Active file has edits not yet written to storage. */
+  isDirty?: boolean;
+  /** Briefly true after Cmd/Ctrl+S. */
+  savedFlash?: boolean;
 }
 
 export default function StatusBar({
@@ -28,6 +32,8 @@ export default function StatusBar({
   onViewModeChange,
   settings,
   onSettingsChange,
+  isDirty = false,
+  savedFlash = false,
 }: StatusBarProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const words = countWords(content);
@@ -49,6 +55,21 @@ export default function StatusBar({
         <span>{lines} lines</span>
         <span className="text-neutral-300 dark:text-neutral-600">|</span>
         <span>{readingTime} min read</span>
+        <span className="text-neutral-300 dark:text-neutral-600">|</span>
+        <span
+          aria-live="polite"
+          className={cn(
+            "transition-colors",
+            savedFlash
+              ? "text-green-600 dark:text-green-400"
+              : isDirty
+                ? "text-blue-600 dark:text-blue-400"
+                : ""
+          )}
+          title="Changes are saved to this browser automatically (Cmd+S saves now)"
+        >
+          {savedFlash ? "Saved" : isDirty ? "Unsaved" : "Saved"}
+        </span>
       </div>
       <div className="flex items-center gap-1">
         <button
@@ -112,7 +133,7 @@ export default function StatusBar({
         <div className="flex items-center border border-neutral-200 dark:border-neutral-700 rounded-md overflow-hidden">
           <button
             onClick={() => onViewModeChange("editor")}
-            title="Editor only"
+            title="Editor only (Cmd+Shift+E cycles)"
             className={cn(
               "p-1 transition-colors",
               viewMode === "editor"

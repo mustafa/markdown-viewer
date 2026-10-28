@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { EditorView } from "@codemirror/view";
-import { MarkdownFile, EditorSettings, ViewMode } from "@/types";
+import { MarkdownFile, EditorSettings, ViewMode, Heading } from "@/types";
 import { generateId } from "@/lib/markdown";
+import { findSample } from "@/lib/samples";
 import {
   saveFile,
   loadFiles,
@@ -22,7 +24,7 @@ import TabBar from "./TabBar";
 import StatusBar from "./StatusBar";
 import CodeMirrorEditor from "../editor/CodeMirrorEditor";
 import EditorToolbar from "../editor/EditorToolbar";
-import MarkdownPreview from "../preview/MarkdownPreview";
+import MarkdownPreview, { MarkdownBody } from "../preview/MarkdownPreview";
 import TableOfContents from "../preview/TableOfContents";
 import SearchBar from "../search/SearchBar";
 import {
@@ -38,6 +40,25 @@ const DEFAULT_CONTENT = `# Untitled
 
 Start writing your markdown here...
 `;
+
+const MAX_EDITOR_MATCHES = 5000;
+
+// Byte offsets of every occurrence of `query` in `text`, for the editor-only
+// view where the preview (which normally counts matches) is not mounted.
+function findMatches(text: string, query: string, caseSensitive: boolean): number[] {
+  if (!query) return [];
+  const hay = caseSensitive ? text : text.toLowerCase();
+  const needle = caseSensitive ? query : query.toLowerCase();
+  const out: number[] = [];
+  let i = 0;
+  while (out.length < MAX_EDITOR_MATCHES) {
+    i = hay.indexOf(needle, i);
+    if (i === -1) break;
+    out.push(i);
+    i += needle.length;
+  }
+  return out;
+}
 
 export default function MainLayout() {
   const [files, setFiles] = useState<MarkdownFile[]>([]);
@@ -55,16 +76,35 @@ export default function MainLayout() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
-  const [searchMatchCount, setSearchMatchCount] = useState(0);
+  const [previewMatchCount, setPreviewMatchCount] = useState(0);
   const [searchActiveMatch, setSearchActiveMatch] = useState(0);
   const [editorView, setEditorView] = useState<EditorView | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
   const initRef = useRef(false);
 
   const activeFile =
     files.find((f) => f.id === activeFileId) || null;
 
-  useAutoSave(activeFile);
+  // Clear the dirty marker only where the saved snapshot is still current;
+  // a keystroke during the save keeps the file dirty for the next pass.
+  const handleSaved = useCallback((saved: MarkdownFile[]) => {
+    setFiles((prev) =>
+      prev.map((f) => {
+        const s = saved.find((x) => x.id === f.id);
+        return s && s.content === f.content && s.name === f.name
+          ? { ...f, isDirty: false }
+          : f;
+      })
+    );
+  }, []);
+
+  const flushSave = useAutoSave(files, handleSaved);
+
+  const saveNow = useCallback(() => {
+    flushSave();
+    setSavedAt(Date.now());
+  }, [flushSave]);
 
   // Load from localStorage on mount. The page is prerendered without
   // storage access, so hydrating state lazily would mismatch the exported
@@ -131,12 +171,19 @@ export default function MainLayout() {
     }
   }, [settings, mounted]);
 
+  // "Saved" flash in the status bar, cleared after a moment.
+  useEffect(() => {
+    if (savedAt == null) return;
+    const t = setTimeout(() => setSavedAt(null), 1800);
+    return () => clearTimeout(t);
+  }, [savedAt]);
+
   const handleContentChange = useCallback(
     (content: string) => {
       if (!activeFileId) return;
       setFiles((prev) =>
         prev.map((f) =>
-          f.id === activeFileId
+          f.id === activeFileId && f.content !== content
             ? { ...f, content, isDirty: true, lastModified: Date.now() }
             : f
         )
@@ -145,11 +192,11 @@ export default function MainLayout() {
     [activeFileId]
   );
 
-  const handleNewFile = useCallback(() => {
+  const addFile = useCallback((name: string, content: string) => {
     const newFile: MarkdownFile = {
       id: generateId(),
-      name: "Untitled.md",
-      content: DEFAULT_CONTENT,
+      name,
+      content,
       lastModified: Date.now(),
       isDirty: false,
     };
@@ -159,86 +206,85 @@ export default function MainLayout() {
     setActiveFileId(newFile.id);
   }, []);
 
-  const handleOpenFile = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const content = e.target?.result as string;
-      const newFile: MarkdownFile = {
-        id: generateId(),
-        name: file.name,
-        content,
-        lastModified: Date.now(),
-        isDirty: false,
-      };
-      saveFile(newFile);
-      setFiles((prev) => [...prev, newFile]);
-      setOpenFileIds((prev) => [...prev, newFile.id]);
-      setActiveFileId(newFile.id);
-    };
-    reader.readAsText(file);
-  }, []);
+  const handleNewFile = useCallback(() => {
+    addFile("Untitled.md", DEFAULT_CONTENT);
+  }, [addFile]);
 
-  const handleSelectFile = useCallback(
-    (id: string) => {
-      if (!openFileIds.includes(id)) {
-        setOpenFileIds((prev) => [...prev, id]);
-      }
-      setActiveFileId(id);
+  const handleOpenFile = useCallback(
+    (file: File) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = typeof e.target?.result === "string" ? e.target.result : "";
+        addFile(file.name, content);
+      };
+      reader.onerror = () => {
+        console.error("Failed to read file:", file.name, reader.error);
+      };
+      reader.readAsText(file);
     },
-    [openFileIds]
+    [addFile]
   );
+
+  const handleSelectFile = useCallback((id: string) => {
+    setOpenFileIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setActiveFileId(id);
+  }, []);
 
   const handleCloseFile = useCallback(
     (id: string) => {
-      setOpenFileIds((prev) => {
-        const next = prev.filter((fid) => fid !== id);
-        if (activeFileId === id) {
-          setActiveFileId(next.length > 0 ? next[next.length - 1] : null);
-        }
-        return next;
-      });
+      const next = openFileIds.filter((fid) => fid !== id);
+      setOpenFileIds(next);
+      if (activeFileId === id) {
+        setActiveFileId(next.length > 0 ? next[next.length - 1] : null);
+      }
     },
-    [activeFileId]
+    [openFileIds, activeFileId]
   );
 
   const handleDeleteFile = useCallback(
     (id: string) => {
       removeFile(id);
       setFiles((prev) => prev.filter((f) => f.id !== id));
-      setOpenFileIds((prev) => {
-        const next = prev.filter((fid) => fid !== id);
-        if (activeFileId === id) {
-          setActiveFileId(next.length > 0 ? next[next.length - 1] : null);
-        }
-        return next;
-      });
+      const next = openFileIds.filter((fid) => fid !== id);
+      setOpenFileIds(next);
+      if (activeFileId === id) {
+        setActiveFileId(next.length > 0 ? next[next.length - 1] : null);
+      }
     },
-    [activeFileId]
+    [openFileIds, activeFileId]
   );
 
-  const handleLoadSample = useCallback(async (filename: string) => {
-    try {
-      const res = await fetch(`/samples/${filename}`);
-      const content = await res.text();
-      const newFile: MarkdownFile = {
-        id: generateId(),
-        name: filename,
-        content,
-        lastModified: Date.now(),
-        isDirty: false,
-      };
-      saveFile(newFile);
-      setFiles((prev) => [...prev, newFile]);
-      setOpenFileIds((prev) => [...prev, newFile.id]);
-      setActiveFileId(newFile.id);
-    } catch (err) {
-      console.error("Failed to load sample:", err);
-    }
+  const handleRenameFile = useCallback((id: string, name: string) => {
+    setFiles((prev) =>
+      prev.map((f) => {
+        if (f.id !== id || f.name === name) return f;
+        const renamed = { ...f, name, lastModified: Date.now() };
+        saveFile(renamed);
+        return { ...renamed, isDirty: false };
+      })
+    );
   }, []);
+
+  const handleLoadSample = useCallback(
+    (filename: string) => {
+      const sample = findSample(filename);
+      if (!sample) {
+        console.error("Unknown sample:", filename);
+        return;
+      }
+      addFile(sample.filename, sample.content);
+    },
+    [addFile]
+  );
 
   const handleExportHTML = useCallback(() => {
     if (!activeFile) return;
-    exportToHTML(activeFile.content, activeFile.name);
+    const previewEl = document.querySelector("[data-preview-content]");
+    // In editor-only view the preview is not mounted; render it off-screen.
+    const bodyHTML = previewEl
+      ? previewEl.innerHTML
+      : renderToStaticMarkup(<MarkdownBody content={activeFile.content} />);
+    exportToHTML(bodyHTML, activeFile.name);
   }, [activeFile]);
 
   const handleExportPDF = useCallback(() => {
@@ -261,18 +307,102 @@ export default function MainLayout() {
   // The preview reports how many matches it actually highlighted; keep the
   // active index inside that range.
   const handleSearchMatchCount = useCallback((count: number) => {
-    setSearchMatchCount(count);
+    setPreviewMatchCount(count);
     setSearchActiveMatch((prev) =>
       count === 0 ? 0 : Math.min(Math.max(prev, 1), count)
     );
   }, []);
 
+  const openSearch = useCallback(() => {
+    setSearchOpen(true);
+    // Already open: put the cursor back in the box.
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Search in document"]'
+    );
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  }, []);
+
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
     setSearchQuery("");
-    setSearchMatchCount(0);
+    setPreviewMatchCount(0);
     setSearchActiveMatch(0);
   }, []);
+
+  // Editor-only view: the preview is not mounted, so count matches in the
+  // source and move the editor selection to the active one.
+  const editorMatches = useMemo(
+    () =>
+      viewMode === "editor" && searchOpen && activeFile
+        ? findMatches(activeFile.content, searchQuery, searchCaseSensitive)
+        : null,
+    [viewMode, searchOpen, activeFile, searchQuery, searchCaseSensitive]
+  );
+  const searchMatchCount = editorMatches ? editorMatches.length : previewMatchCount;
+  const activeMatch =
+    searchMatchCount === 0 ? 0 : Math.min(Math.max(searchActiveMatch, 1), searchMatchCount);
+
+  useEffect(() => {
+    if (!editorView || viewMode !== "editor" || !searchOpen || !searchQuery) return;
+    const pos = findMatches(editorView.state.doc.toString(), searchQuery, searchCaseSensitive);
+    const target = pos[Math.min(Math.max(searchActiveMatch, 1), pos.length) - 1];
+    if (target == null) return;
+    editorView.dispatch({
+      selection: { anchor: target, head: target + searchQuery.length },
+      effects: EditorView.scrollIntoView(target, { y: "center" }),
+    });
+    // Runs when the query or the active index changes, not on every keystroke
+    // in the editor: re-selecting while typing would move the cursor.
+  }, [editorView, viewMode, searchOpen, searchQuery, searchCaseSensitive, searchActiveMatch]);
+
+  // Table of contents: scroll the preview when it is on screen, otherwise
+  // put the editor cursor on the heading's line.
+  const handleNavigate = useCallback(
+    (heading: Heading) => {
+      const previewEl = document.querySelector<HTMLElement>("[data-preview-content]");
+      const target = previewEl?.querySelector<HTMLElement>(`#${CSS.escape(heading.id)}`);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      if (editorView && (!target || viewMode === "split")) {
+        const doc = editorView.state.doc;
+        const line = doc.line(Math.min(Math.max(heading.line, 1), doc.lines));
+        editorView.dispatch({
+          selection: { anchor: line.from },
+          effects: EditorView.scrollIntoView(line.from, { y: "start", yMargin: 8 }),
+        });
+        if (!target) editorView.focus();
+      }
+    },
+    [editorView, viewMode]
+  );
+
+  // Global shortcuts. Cmd/Ctrl+S would otherwise open the browser's "Save
+  // page" dialog, and Cmd/Ctrl+F the browser's find bar.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === "f" && !e.shiftKey) {
+        e.preventDefault();
+        openSearch();
+      } else if (key === "s" && !e.shiftKey) {
+        e.preventDefault();
+        saveNow();
+      } else if (key === "\\") {
+        e.preventDefault();
+        setSidebarOpen((v) => !v);
+      } else if (key === "e" && e.shiftKey) {
+        e.preventDefault();
+        setViewMode((m) => (m === "split" ? "editor" : m === "editor" ? "preview" : "split"));
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openSearch, saveNow]);
 
   // Handle image drag-and-drop into the editor
   const handleEditorDrop = useCallback(
@@ -322,7 +452,8 @@ export default function MainLayout() {
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-            title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            title={sidebarOpen ? "Hide sidebar (Cmd+\\)" : "Show sidebar (Cmd+\\)"}
+            aria-pressed={sidebarOpen}
           >
             {sidebarOpen ? (
               <PanelLeftClose className="h-4 w-4 text-neutral-500" />
@@ -338,6 +469,7 @@ export default function MainLayout() {
           <button
             onClick={() => setTocOpen(!tocOpen)}
             title="Table of Contents"
+            aria-pressed={tocOpen}
             className={cn(
               "p-1.5 rounded transition-colors",
               tocOpen
@@ -350,7 +482,7 @@ export default function MainLayout() {
           <button
             onClick={handleExportHTML}
             title="Export as HTML"
-            className="p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 transition-colors"
+            className="p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 transition-colors disabled:opacity-40"
             disabled={!activeFile}
           >
             <Download className="h-4 w-4" />
@@ -358,7 +490,7 @@ export default function MainLayout() {
           <button
             onClick={handleExportPDF}
             title="Print / Export as PDF"
-            className="p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 transition-colors"
+            className="p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 transition-colors disabled:opacity-40"
             disabled={!activeFile}
           >
             <FileDown className="h-4 w-4" />
@@ -377,13 +509,14 @@ export default function MainLayout() {
               onNewFile={handleNewFile}
               onOpenFile={handleOpenFile}
               onDeleteFile={handleDeleteFile}
+              onRenameFile={handleRenameFile}
               onLoadSample={handleLoadSample}
             />
           </div>
         )}
 
         {/* Main Content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <TabBar
             files={openFiles}
             activeFileId={activeFileId}
@@ -396,14 +529,14 @@ export default function MainLayout() {
               {(viewMode === "editor" || viewMode === "split") && (
                 <EditorToolbar
                   editorView={editorView}
-                  onToggleSearch={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+                  onToggleSearch={() => (searchOpen ? closeSearch() : openSearch())}
                   searchActive={searchOpen}
                 />
               )}
               {searchOpen && (
                 <SearchBar
                   matchCount={searchMatchCount}
-                  activeMatch={searchActiveMatch}
+                  activeMatch={activeMatch}
                   onClose={closeSearch}
                   onQueryChange={handleSearchQueryChange}
                   onActiveMatchChange={setSearchActiveMatch}
@@ -427,7 +560,11 @@ export default function MainLayout() {
                       }
                     }}
                   >
+                    {/* Keyed by file so each document gets its own editor
+                        state: a shared editor let Cmd+Z undo across tabs and
+                        restore another file's text into this one. */}
                     <CodeMirrorEditor
+                      key={activeFile.id}
                       value={activeFile.content}
                       onChange={handleContentChange}
                       settings={settings}
@@ -442,25 +579,25 @@ export default function MainLayout() {
                       viewMode === "split" ? "w-1/2" : "w-full"
                     )}
                   >
-                    <div className="flex-1 overflow-auto">
+                    <div className="flex-1 overflow-auto min-w-0">
                       <MarkdownPreview
                         content={activeFile.content}
                         searchQuery={searchQuery}
                         caseSensitive={searchCaseSensitive}
-                        activeMatch={searchActiveMatch}
+                        activeMatch={activeMatch}
                         onMatchCount={handleSearchMatchCount}
                       />
                     </div>
                     {tocOpen && (
                       <div className="w-56 shrink-0 border-l border-neutral-200 dark:border-neutral-800 overflow-auto">
-                        <TableOfContents content={activeFile.content} />
+                        <TableOfContents content={activeFile.content} onNavigate={handleNavigate} />
                       </div>
                     )}
                   </div>
                 )}
                 {viewMode === "editor" && tocOpen && (
                   <div className="w-56 shrink-0 border-l border-neutral-200 dark:border-neutral-800 overflow-auto">
-                    <TableOfContents content={activeFile.content} />
+                    <TableOfContents content={activeFile.content} onNavigate={handleNavigate} />
                   </div>
                 )}
               </div>
@@ -482,6 +619,8 @@ export default function MainLayout() {
             onViewModeChange={setViewMode}
             settings={settings}
             onSettingsChange={setSettings}
+            isDirty={!!activeFile?.isDirty}
+            savedFlash={savedAt != null}
           />
         </div>
       </div>

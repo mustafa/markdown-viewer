@@ -1,13 +1,16 @@
-export function exportToHTML(content: string, title: string): void {
-  const previewEl = document.querySelector("[data-preview-content]");
-  const previewHTML = previewEl ? previewEl.innerHTML : "";
-
+/**
+ * Download the rendered document as a standalone HTML file. `bodyHTML` is the
+ * preview's markup; the caller renders it off-screen when the preview pane is
+ * hidden, so the export is never empty in editor-only view.
+ */
+export function exportToHTML(bodyHTML: string, fileName: string): void {
+  const stem = fileName.replace(/\.(md|markdown|mdown|mkd|txt)$/i, "") || "document";
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(title)}</title>
+  <title>${escapeHtml(stem)}</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -53,10 +56,11 @@ export function exportToHTML(content: string, title: string): void {
     ul, ol { padding-left: 2em; }
     li { margin: 0.25em 0; }
     input[type="checkbox"] { margin-right: 0.5em; }
+    mark { background: transparent; color: inherit; }
   </style>
 </head>
 <body>
-${previewHTML}
+${bodyHTML}
 </body>
 </html>`;
 
@@ -64,9 +68,13 @@ ${previewHTML}
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${title.replace(/\.md$/, "")}.html`;
+  a.download = `${stem}.html`;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  // Revoke after the click has been dispatched; revoking synchronously can
+  // cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export function exportToPDF(): void {
